@@ -232,9 +232,21 @@
         const scenarios = {
             bug: {
                 constraints: {
-                    video: { width: 300, height: 300 }
-                },
-                label: '固定宽高 300x300 (可能触发 Bug)'
+  audio: {
+    volume: 1.0,
+    sampleRate: 44100,
+    channelCount: 1,
+    echoCancellation: true,
+    autoGainControl: true,
+    noiseSuppression: true
+  },
+  video: {
+    facingMode: { exact: "user" },
+    width: 300,
+    height: 300
+  }
+},
+                label: '固定宽高 300x300，还有音频限制 (可能触发 Bug)'
             },
             ideal: {
                 constraints: {

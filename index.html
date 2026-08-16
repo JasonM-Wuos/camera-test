@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>摄像头约束测试</title>
+</head>
+<body>
+    <video id="video" autoplay playsinline></video>
+    <script>
+        // 尝试复现 Bug 的约束
+        const constraints = {
+            video: { width: 320, height: 240 } // 复现 Bug 176349[reference:8]
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints)
+            .then(stream => {
+                document.getElementById('video').srcObject = stream;
+                console.log('成功！没有 OverconstrainedError');
+            })
+            .catch(error => {
+                // 检查错误类型
+                if (error.name === 'OverconstrainedError') {
+                    console.error('复现成功！触发了 OverconstrainedError', error);
+                } else {
+                    console.error('遇到其他错误：', error);
+                }
+            });
+    </script>
+</body>
+</html>

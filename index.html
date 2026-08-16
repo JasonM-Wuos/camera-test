@@ -1,29 +1,282 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>摄像头约束测试</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>摄像头约束诊断工具</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: #f5f7fa;
+            color: #1e293b;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sub {
+            color: #64748b;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+        .constraint-box {
+            background: #f1f5f9;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Menlo', 'Courier New', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-bottom: 16px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .btn {
+            flex: 1;
+            min-width: 120px;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 10px;
+            background: #e2e8f0;
+            color: #1e293b;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-primary:active { background: #2563eb; }
+        .btn-success {
+            background: #22c55e;
+            color: white;
+        }
+        .btn-success:active { background: #16a34a; }
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+        .btn-warning:active { background: #d97706; }
+
+        video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 12px;
+            background: #000;
+            margin: 12px 0;
+            display: block;
+        }
+
+        .result {
+            padding: 14px;
+            border-radius: 10px;
+            margin: 12px 0;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        .result.success {
+            background: #dcfce7;
+            color: #166534;
+            border-left: 4px solid #22c55e;
+        }
+        .result.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+        .result.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+        }
+        .detail {
+            font-size: 0.85rem;
+            color: #475569;
+            margin-top: 8px;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: monospace;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
-    <video id="video" autoplay playsinline></video>
-    <script>
-        // 尝试复现 Bug 的约束
-        const constraints = {
-            video: { width: 320, height: 240 } // 复现 Bug 176349[reference:8]
+
+<div class="container">
+    <h1>📷 约束诊断</h1>
+    <div class="sub">检测 iOS Safari 是否对固定宽高抛出 OverconstrainedError</div>
+
+    <!-- 显示当前约束 -->
+    <div class="constraint-box" id="constraintDisplay">等待加载...</div>
+
+    <!-- 按钮组：切换不同约束 -->
+    <div class="btn-group">
+        <button class="btn btn-primary" id="btnBug">🐞 触发 Bug (300x300)</button>
+        <button class="btn btn-success" id="btnIdeal">✅ 使用 ideal (宽高)</button>
+        <button class="btn btn-warning" id="btnDefault">🔁 默认 (无约束)</button>
+    </div>
+
+    <!-- 视频预览 -->
+    <video id="video" autoplay playsinline muted></video>
+
+    <!-- 结果显示区域 -->
+    <div id="resultDisplay" class="result info">点击上方按钮开始测试</div>
+
+    <!-- 详细错误信息（如果有） -->
+    <div id="detailDisplay" class="detail" style="display:none;"></div>
+
+    <div class="footer">测试基于 getUserMedia | 所有信息仅在本地处理</div>
+</div>
+
+<script>
+    (function() {
+        const video = document.getElementById('video');
+        const resultDisplay = document.getElementById('resultDisplay');
+        const detailDisplay = document.getElementById('detailDisplay');
+        const constraintDisplay = document.getElementById('constraintDisplay');
+
+        // 辅助：停止当前视频流
+        function stopStream() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+        }
+
+        // 核心测试函数
+        function testConstraints(constraints, label) {
+            stopStream();
+            // 显示约束
+            constraintDisplay.textContent = `📌 当前约束：\n${JSON.stringify(constraints, null, 2)}`;
+
+            // 重置显示
+            resultDisplay.className = 'result info';
+            resultDisplay.textContent = '⏳ 正在请求摄像头...';
+            detailDisplay.style.display = 'none';
+            detailDisplay.textContent = '';
+
+            console.log('测试约束：', constraints);
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    // 成功
+                    video.srcObject = stream;
+                    resultDisplay.className = 'result success';
+                    resultDisplay.textContent = `✅ 成功！摄像头已打开。\n使用的约束：${label}`;
+                    detailDisplay.style.display = 'none';
+                    console.log('成功获取流');
+                })
+                .catch(error => {
+                    // 失败：显示详细错误
+                    let errorName = error.name || '未知错误';
+                    let errorMessage = error.message || '没有额外信息';
+                    let errorConstraint = error.constraint || '（未提供）';
+
+                    // 构造显示内容
+                    resultDisplay.className = 'result error';
+                    resultDisplay.textContent = `❌ 摄像头访问失败\n错误名称：${errorName}\n错误消息：${errorMessage}`;
+
+                    // 显示详细诊断信息
+                    detailDisplay.style.display = 'block';
+                    detailDisplay.textContent = 
+`📋 详细诊断：
+- 错误类型：${errorName}
+- 错误消息：${errorMessage}
+- 违反的约束：${errorConstraint}
+- 使用的约束对象：${JSON.stringify(constraints, null, 2)}
+- 用户代理：${navigator.userAgent}
+- 时间：${new Date().toLocaleString()}
+
+💡 建议：
+- 如果出现 OverconstrainedError，说明约束条件过于严格。
+- 尝试使用 ideal 关键词（例如 { width: { ideal: 300 } }）可以避免此错误。
+- 如果使用 ideal 后成功，则证实存在 WebKit 约束解析 Bug。`;
+
+                    console.error('摄像头访问失败：', error);
+                });
+        }
+
+        // 定义几个测试场景
+        const scenarios = {
+            bug: {
+                constraints: {
+                    video: { width: 300, height: 300 }
+                },
+                label: '固定宽高 300x300 (可能触发 Bug)'
+            },
+            ideal: {
+                constraints: {
+                    video: { width: { ideal: 300 }, height: { ideal: 300 } }
+                },
+                label: 'ideal 宽高 300x300 (应能正常工作)'
+            },
+            default: {
+                constraints: {
+                    video: true
+                },
+                label: '无约束 (仅打开摄像头)'
+            }
         };
 
-        navigator.mediaDevices.getUserMedia(constraints)
-            .then(stream => {
-                document.getElementById('video').srcObject = stream;
-                console.log('成功！没有 OverconstrainedError');
-            })
-            .catch(error => {
-                // 检查错误类型
-                if (error.name === 'OverconstrainedError') {
-                    console.error('复现成功！触发了 OverconstrainedError', error);
-                } else {
-                    console.error('遇到其他错误：', error);
-                }
-            });
-    </script>
+        // 绑定按钮事件
+        document.getElementById('btnBug').addEventListener('click', function() {
+            testConstraints(scenarios.bug.constraints, scenarios.bug.label);
+        });
+
+        document.getElementById('btnIdeal').addEventListener('click', function() {
+            testConstraints(scenarios.ideal.constraints, scenarios.ideal.label);
+        });
+
+        document.getElementById('btnDefault').addEventListener('click', function() {
+            testConstraints(scenarios.default.constraints, scenarios.default.label);
+        });
+
+        // 页面加载后自动执行一次默认测试（可选）
+        window.addEventListener('load', function() {
+            // 自动运行默认测试，让用户看到效果
+            setTimeout(() => {
+                testConstraints(scenarios.bug.constraints, scenarios.bug.label);
+            }, 500);
+        });
+
+        // 页面关闭时释放流（非必须）
+        window.addEventListener('beforeunload', function() {
+            stopStream();
+        });
+    })();
+</script>
+
 </body>
 </html>
